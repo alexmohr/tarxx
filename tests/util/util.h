@@ -144,14 +144,23 @@ namespace util {
             // "-rw-r--r-- 1422250/880257   12 2022-09-16 12:26 /tmp/test"
             // links have 8 parts
             if (shell_tar == tar_version::gnu) {
+                const auto permissions = tokens.at(0);
+                const auto file_type = permissions.at(0);
                 const auto owner_group = split_string(tokens.at(1), '/');
                 std::string name;
                 std::string link_name;
                 if (tokens.size() == 6U) {
                     name = tokens.at(5);
                 } else {
-                    link_name = tokens.at(5);
-                    name = tokens.at(7);
+                    if (permissions.at(0) == 'l') {
+                        link_name = tokens.at(5);
+                        name = tokens.at(7);
+                    } else if (permissions.at(0) == 'c') {
+                    } else {
+                        throw std::runtime_error(std::string("Unsupported file type: ") + file_type);
+                    }
+
+
                 }
                 infos.emplace_back(file_info {
                         tokens.at(0),

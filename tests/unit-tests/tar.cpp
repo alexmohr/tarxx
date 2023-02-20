@@ -452,4 +452,25 @@ TEST(tar_tests, add_directory_on_the_fly)
     EXPECT_EQ(file.permissions, "drwxr-xr-x");
 }
 
+#if defined(__linux)
+TEST(tar_tests, add_char_special_device_from_filesystem)
+{
+    const auto tar_type = tarxx::tarfile::tar_type::ustar;
+    const auto tar_filename = util::tar_file_name();
+    tarxx::tarfile f(tar_filename, tar_type);
+    util::file_info test_file {
+            .path = "/dev/random"
+    };
+    std::vector<util::file_info> expected_files = {
+            test_file
+    };
+
+    f.add_from_filesystem(test_file.path);
+    f.close();
+
+    util::expect_files_in_tar(tar_filename, expected_files, tar_type);
+}
+
+#endif
+
 INSTANTIATE_TEST_SUITE_P(tar_type_dependent, tar_tests, ::testing::Values(tarxx::tarfile::tar_type::unix_v7, tarxx::tarfile::tar_type::ustar));

@@ -170,8 +170,11 @@ namespace tarxx {
         [[nodiscard]] virtual uid_t user_id() const = 0;
         [[nodiscard]] virtual gid_t group_id() const = 0;
 
-        [[nodiscard]] virtual std::string user_name() const = 0;
-        [[nodiscard]] virtual std::string group_name() const = 0;
+        [[nodiscard]] virtual std::string user_name(uid_t uid) const = 0;
+        [[nodiscard]] virtual std::string group_name(gid_t gid) const = 0;
+
+        [[nodiscard]] virtual uid_t file_owner(const std::string& path) const = 0;
+        [[nodiscard]] virtual gid_t file_group(const std::string& path) const = 0;
 
         virtual void major_minor(const std::string& path, major_t& major, minor_t& minor) const = 0;
     };
@@ -274,17 +277,17 @@ namespace tarxx {
 
 #if defined(__linux)
     struct PosixOS : OS {
-        [[nodiscard]] std::string user_name() const override
+        [[nodiscard]] std::string user_name(uid_t uid) const override
         {
-            const auto* const pwd = getpwuid(user_id());
+            const auto* const pwd = getpwuid(uid);
             // keep fields empty if we failed to get the name
             if (pwd == nullptr) return "";
             return pwd->pw_name;
         }
 
-        [[nodiscard]] std::string group_name() const override
+        [[nodiscard]] std::string group_name(gid_t gid) const override
         {
-            const auto* const group = getgrgid(group_id());
+            const auto* const group = getgrgid(gid);
             if (group == nullptr) return "";
             return group->gr_name;
         }
@@ -307,6 +310,16 @@ namespace tarxx {
             major = major(file_stat.st_rdev);
             minor = minor(file_stat.st_rdev);
         }
+
+        [[nodiscard]] uid_t file_owner(const std::string& path) const override{
+            const auto file_stat = get_stat(path);
+            return file_stat.st_uid;
+        };
+
+        [[nodiscard]] virtual gid_t file_group(const std::string& path) const override{
+            const auto file_stat = get_stat(path);
+            return file_stat.st_gid;
+        };
 
     protected:
         static struct passwd* passwd()
@@ -691,6 +704,8 @@ namespace tarxx {
             minor_t dev_minor = 0;
             std::string link_name;
             mode_t mode = platform_.permissions(path);
+            const auto file_uid = platform_.file_owner(path);
+            const auto file_gid = platform_.file_group(path);
 
             // Store the device major number (for block or character devices).
             const auto file_type = platform_.type_flag(path);
@@ -729,8 +744,8 @@ namespace tarxx {
             write_header(
                     path,
                     mode,
-                    platform_.user_id(),
-                    platform_.group_id(),
+                    file_uid,
+                    file_gid,
                     size,
                     platform_.mod_time(path),
                     file_type,
@@ -765,8 +780,8 @@ namespace tarxx {
             if (type_ == tar_type::ustar) {
                 write_into_block(header, "ustar", USTAR_HEADER_POS_MAGIC, USTAR_HEADER_LEN_MAGIC);
 
-                write_into_block(header, platform_.user_name(), USTAR_HEADER_POS_UNAME, USTAR_HEADER_LEN_UNAME);
-                write_into_block(header, platform_.group_name(), USTAR_HEADER_POS_GNAME, USTAR_HEADER_LEN_GNAME);
+                write_into_block(header, platform_.user_name(uid), USTAR_HEADER_POS_UNAME, USTAR_HEADER_LEN_UNAME);
+                write_into_block(header, platform_.group_name(gid), USTAR_HEADER_POS_GNAME, USTAR_HEADER_LEN_GNAME);
 
                 write_into_block(header, to_octal_ascii(dev_major, USTAR_HEADER_LEN_DEVMAJOR), USTAR_HEADER_POS_DEVMAJOR, USTAR_HEADER_LEN_DEVMAJOR);
                 write_into_block(header, to_octal_ascii(dev_minor, USTAR_HEADER_LEN_DEVMAJOR), USTAR_HEADER_POS_DEVMINOR, USTAR_HEADER_LEN_DEVMINOR);
