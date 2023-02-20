@@ -27,7 +27,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#if defined(__linux)
+#if defined(__linux) || defined(__QNX__)
 #    include <getopt.h>
 #    include <unistd.h>
 #else
@@ -140,14 +140,14 @@ static int tar_stream_in_stream_out(std::ostream& os, const tarxx::tarfile::tar_
 
 static bool std_out_redirected()
 {
-#if defined(__linux)
+#if defined(__linux) || defined(__QNX__)
     return isatty(fileno(stdout)) == 0;
 #endif
 }
 
 static bool std_in_redirected()
 {
-#if defined(__linux)
+#if defined(__linux) || defined(__QNX__)
     return isatty(fileno(stdin)) == 0;
 #endif
 }
@@ -167,7 +167,7 @@ int main(const int argc, char* const* const argv)
 #ifdef WITH_LZ4
     shortOpts += 'k';
 #endif
-#if defined(__linux)
+#if defined(__linux) || defined(__QNX__)
     while ((opt = getopt(argc, argv, shortOpts.c_str())) != -1) {
         switch (opt) {
             case 'c':

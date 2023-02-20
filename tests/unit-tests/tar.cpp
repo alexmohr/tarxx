@@ -29,10 +29,9 @@
 #include <tarxx.h>
 #include <util/util.h>
 
-#ifdef __linux
+#if defined(__linux) || defined(__QNX__)
 #    include <sys/socket.h>
 #    include <sys/un.h>
-
 #endif
 
 using std::string_literals::operator""s;
@@ -661,18 +660,23 @@ TEST_P(tar_tests, add_directory_twice_via_streaming)
     const auto user = platform.user_id();
     const auto group = platform.group_id();
 
-    util::file_info test_dir {
-            .permissions = "drwxr-xr-x",
-            .owner = tar_type == tarxx::tarfile::tar_type::unix_v7 ? std::to_string(user) : platform.user_name(user),
-            .group = tar_type == tarxx::tarfile::tar_type::unix_v7 ? std::to_string(group) : platform.user_name(group),
-            .size = 0,
-            .date = "1970-01-01",
-            .time = "00:00",
-            .path = "test_dir/",
-            .link_name = "",
-            .mtime = {0, 0},
-            .mode = 0755,
-            .device_type = "",
+    util::file_info test_dir
+    {
+        .permissions = "drwxr-xr-x",
+        .owner = tar_type == tarxx::tarfile::tar_type::unix_v7 ? std::to_string(user) : platform.user_name(user),
+        .group = tar_type == tarxx::tarfile::tar_type::unix_v7 ? std::to_string(group) : platform.user_name(group),
+        .size = 0,
+#if defined(__QNX__)
+        .date = std::to_string(util::current_year()) + "-01-01",
+#else
+        .date = "1970-01-01",
+#endif
+        .time = "00:00",
+        .path = "test_dir/",
+        .link_name = "",
+        .mtime = {0, 0},
+        .mode = 0755,
+        .device_type = "",
     };
 
     tarxx::tarfile f(tar_filename, tar_type);
@@ -740,7 +744,7 @@ TEST(tar_tests, add_from_filesystem_ustar_prefix_used)
     util::expect_files_in_tar(tar_filename, test_files, tar_type);
 }
 
-#if defined(__linux)
+#if defined(__linux) || defined(__QNX__)
 TEST(tar_tests, add_char_special_device_from_filesystem)
 {
     if (util::tar_version() != util::tar_version::gnu) {

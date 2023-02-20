@@ -50,9 +50,9 @@
 #include <unordered_set>
 #include <vector>
 
-#if defined(__linux)
-
+#if defined(__linux) || defined(__QNX__)
 #    include <cerrno>
+#    include <climits>
 #    include <fcntl.h>
 #    include <ftw.h>
 #    include <grp.h>
@@ -82,8 +82,7 @@ namespace tarxx {
         CONTIGUOUS_FILE = '7',
     };
 
-#if defined(__linux)
-
+#if defined(__linux) || defined(__QNX__)
     struct errno_exception : std::system_error {
         errno_exception() : std::system_error(std::error_code(errno, std::generic_category())) {}
 
@@ -315,8 +314,7 @@ namespace tarxx {
         }
     };
 
-#if defined(__linux)
-
+#if defined(__linux) || defined(__QNX__)
     struct PosixOS : OS {
         [[nodiscard]] std::string user_name(uid_t uid) const override
         {
@@ -385,8 +383,150 @@ namespace tarxx {
 #if defined(__linux)
     struct Platform : public PosixOS, public StdFilesytem {
     };
-#else
-#    error "no support for targeted platform"
+#elif defined(__QNX__)
+    struct Platform : public PosixOS, public Filesystem {
+
+        void iterateDirectory(const std::string& path, std::function<void(const std::string&)>&& cb) const override
+        {
+            static std::function<void(const std::string&)> tar_callback = cb;
+            static std::string start_dir;
+            static std::string start_dir_abs;
+            static std::string rel_path_indicator;
+
+            const auto ntftw_callback = [](const char* ntftw_path, const struct stat* sb, int type_flag, struct FTW* ftw_buf) -> int {
+                // deal with relative paths
+                if (start_dir[0] != '/') {
+                    std::string path_str(ntftw_path);
+                    if (start_dir_abs == ntftw_path) {
+                        tar_callback(".");
+                        return 0;
+                    }
+
+                    // as we have to add a trailing slash later anyway, add it now.
+                    // this simplifies the logic of making paths relative
+                    if (S_ISDIR(sb->st_mode) && path_str.at(path_str.size() - 1) != '/') {
+                        path_str += "/";
+                    }
+
+                    // replace the working directory with the relative path indicator.
+                    // this can be empty if our relative path is upwards from the starting dir
+                    // (path starts with ..) otherwise it's ./
+                    const auto working_dir = work_dir();
+                    if (!path_str.empty() && path_str.find(working_dir) == 0)
+                        path_str.replace(0, working_dir.length(), rel_path_indicator);
+
+                    // remove leading slashes
+                    if (!path_str.empty() && path_str.at(0) == '/')
+                        path_str = path_str.erase(0, 1);
+
+                    tar_callback(path_str);
+                } else {
+                    tar_callback(ntftw_path);
+                }
+
+                return 0;
+            };
+
+            const auto initial_working_dir = work_dir();
+            start_dir = path;
+            if (path.find("..") == 0) {
+                // let the OS deal with resolving the path
+                if (chdir(path.c_str()) != 0) throw errno_exception();
+                start_dir = ".";
+                rel_path_indicator = "";
+            } else {
+                rel_path_indicator = ".";
+            }
+
+            start_dir_abs = [&]() {
+                std::array<char, PATH_MAX> buf {};
+                realpath(start_dir.c_str(), buf.data());
+                return std::string(buf.data());
+            }();
+
+            const auto max_open_fds = 1;
+            const auto res = nftw(start_dir.c_str(), ntftw_callback, max_open_fds, FTW_PHYS);
+
+            // restore the old path work dir
+            if (chdir(initial_working_dir.c_str()) != 0) throw errno_exception();
+            if (res != 0) {
+                throw errno_exception();
+            }
+        }
+
+        [[nodiscard]] uint64_t file_size(const std::string& path) const override
+        {
+            const auto file_stat = get_stat(path);
+            return file_stat.st_size;
+        }
+
+        [[nodiscard]] mod_time_t mod_time(const std::string& path) const override
+        {
+            const auto file_stat = get_stat(path);
+            return file_stat.st_mtim.tv_sec;
+        }
+
+        [[nodiscard]] mode_t mode(const std::string& path) const override
+        {
+            const auto file_stat = get_stat(path);
+            return file_stat.st_mode & S_IPERMS;
+        }
+
+        [[nodiscard]] file_type_flag type_flag(const std::string& path) const override
+        {
+            const auto file_stat = get_stat(path);
+            const auto mode = file_stat.st_mode;
+            if (S_ISLNK(mode)) {
+                return file_type_flag::SYMBOLIC_LINK;
+            } else if (S_ISBLK(mode)) {
+                return file_type_flag::BLOCK_SPECIAL_FILE;
+            } else if (S_ISCHR(mode)) {
+                return file_type_flag::CHARACTER_SPECIAL_FILE;
+            } else if (S_ISREG(mode)) {
+                return file_type_flag::REGULAR_FILE;
+            } else if (S_ISDIR(mode)) {
+                return file_type_flag::DIRECTORY;
+            } else if (S_ISFIFO(mode)) {
+                return file_type_flag::FIFO;
+            } else {
+                throw std::invalid_argument("Path is of an unsupported type");
+            }
+        }
+
+        [[nodiscard]] virtual std::string read_symlink(const std::string& path) const
+        {
+            std::array<char, 256> buffer {};
+            const auto result = readlink(path.c_str(), buffer.data(), buffer.size());
+            if (result <= 0) throw errno_exception();
+            return buffer.data();
+        }
+
+        [[nodiscard]] bool file_exists(const std::string& path) const override
+        {
+            return access(path.c_str(), F_OK) == 0;
+        };
+
+        [[nodiscard]] std::pair<bool, std::string> file_equivalent_present(const std::string& path,
+                                                                           const std::unordered_set<std::string>& stored_files) const override
+        {
+            const auto path_stat = get_stat(path);
+            for (const auto& f : stored_files) {
+                const auto f_stat = get_stat(f);
+                if (f_stat.st_ino == path_stat.st_ino) {
+                    return {true, f};
+                }
+            }
+            return {false, ""};
+        }
+
+    private:
+        [[nodiscard]] static std::string work_dir()
+        {
+            std::array<char, PATH_MAX> cwd {};
+            getcwd(cwd.data(), cwd.size());
+            return {cwd.data()};
+        }
+    };
 #endif
 
     struct tarfile {
