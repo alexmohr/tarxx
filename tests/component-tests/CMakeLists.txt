@@ -8,9 +8,13 @@ endif()
 list(APPEND SOURCES tarxx-example-tar.cpp)
 
 set(TARGET component-tests)
-find_package(GTest REQUIRED)
-pkg_check_modules(GMock REQUIRED "gmock")
-list(APPEND LIBRARIES GTest::GTest GTest::Main)
+if (NOT WITH_QNX_SUPPORT)
+    find_package(GTest REQUIRED)
+    pkg_check_modules(GMock REQUIRED "gmock")
+    list(APPEND LIBRARIES GTest::GTest GTest::Main)
+else()
+    list(APPEND LIBRARIES "c++fs" "gtest" "gtest_main")
+endif()
 
 enable_testing()
 
@@ -25,7 +29,11 @@ target_link_libraries(
         ${LIBRARIES}
 )
 
-target_compile_definitions(${TARGET} PRIVATE -DTARXX_EXAMPLE_BINARY_PATH="${CMAKE_BINARY_DIR}/${EXAMPLE_NAME}")
+if (WITH_QNX_SUPPORT)
+    target_compile_definitions(${TARGET} PRIVATE -DTARXX_EXAMPLE_BINARY_PATH="/${EXAMPLE_NAME}")
+else()
+    target_compile_definitions(${TARGET} PRIVATE -DTARXX_EXAMPLE_BINARY_PATH="${CMAKE_BINARY_DIR}/${EXAMPLE_NAME}")
+endif()
 
 target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -40,7 +48,9 @@ add_custom_target(
 set_target_properties(${TARGET} PROPERTIES
         CXX_STANDARD 17
         CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF)
+        CXX_EXTENSIONS ${CXX_EXTENSIONS_REQUIRED})
 
-include(GoogleTest)
-gtest_discover_tests(${TARGET})
+if (NOT WITH_QNX_SUPPORT)
+    include(GoogleTest)
+    gtest_discover_tests(${TARGET})
+endif()

@@ -75,7 +75,7 @@ namespace util {
     template<typename... T, typename = std::enable_if<is_homogeneous_type_v<char*, T...>>>
     inline int execute(const std::string& cmd, T*... args)
     {
-#if defined(__linux)
+#if defined(__linux) || defined(__QNX__)
         char* args_array[] = {const_cast<char*>(cmd.c_str()), args..., nullptr};
         pid_t pid = fork();
         if (pid == 0) {
@@ -94,7 +94,7 @@ namespace util {
 
     inline int execute_with_output(const std::string& cmd, std::string& std_out)
     {
-#if defined(__linux)
+#if defined(__linux) || defined(__QNX__)
         constexpr const auto buf_size = 256;
         std::array<char, buf_size> buffer {};
 

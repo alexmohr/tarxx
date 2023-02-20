@@ -5,10 +5,32 @@ IF (WIN32)
     message(FATAL_ERROR Windows is not support at the moment)
 ENDIF()
 
-option(WITH_COMPRESSION "Set to ON to enable compression support without any algorithms" OFF)
-option(WITH_EXAMPLE "Set to ON to build the example" OFF)
-option(WITH_TESTS "Set to ON to build tests" OFF)
-option(WITH_LZ4 "Set to ON to enable lz4 support" OFF)
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles("
+int main() {
+    #ifndef __QNX__
+    #error no qnx support
+    #endif
+}" WITH_QNX_SUPPORT)
+
+set(WITH_COMPRESSION_DEFAULT OFF)
+set(WITH_EXAMPLE_DEFAULT OFF)
+set(WITH_TESTS_DEFAULT OFF)
+set(WITH_LZ4_DEFAULT OFF)
+
+if (WITH_QNX_SUPPORT)
+    set(WITH_COMPRESSION_DEFAULT ON)
+    set(WITH_EXAMPLE_DEFAULT OFF)
+    if (DEFINED ENV{BUILD_TARXX_TESTS})
+        set(WITH_TESTS_DEFAULT ON)
+    endif()
+    set(WITH_LZ4_DEFAULT ON)
+endif()
+
+option(WITH_COMPRESSION "Set to ON to enable compression support without any algorithms" ${WITH_COMPRESSION_DEFAULT})
+option(WITH_EXAMPLE "Set to ON to build the example" ${WITH_EXAMPLE_DEFAULT})
+option(WITH_TESTS "Set to ON to build tests" ${WITH_TESTS_DEFAULT})
+option(WITH_LZ4 "Set to ON to enable lz4 support" ${WITH_LZ4_DEFAULT})
 
 set(LIB_NAME tarxx)
 set(${LIB_NAME}_COMPILE_DEFINITIONS "")
@@ -19,6 +41,10 @@ find_package(PkgConfig REQUIRED)
 
 add_library(${LIB_NAME} INTERFACE)
 target_include_directories(${LIB_NAME} INTERFACE ${CMAKE_CURRENT_LIST_DIR}/include)
+set(CXX_EXTENSIONS_REQUIRED OFF)
+if (WITH_QNX_SUPPORT)
+    set(CXX_EXTENSIONS_REQUIRED ON)
+endif()
 
 if(${CMAKE_VERSION} VERSION_LESS "3.19.0")
     target_compile_features(${LIB_NAME} INTERFACE cxx_std_17)
@@ -26,7 +52,7 @@ else()
     set_target_properties(${LIB_NAME} PROPERTIES
         CXX_STANDARD 17
         CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF)
+        CXX_EXTENSIONS ${CXX_EXTENSIONS_REQUIRED})
 endif()
 
 if (WITH_COMPRESSION)
@@ -37,7 +63,14 @@ if (WITH_LZ4)
     if (NOT WITH_COMPRESSION)
         message(FATAL_ERROR "LZ4 option needs compression to be turned on with '-DCOMPRESSION=ON'")
     endif()
-    find_library(LZ4 liblz4.a REQUIRED)
+    if (WITH_QNX_SUPPORT)
+        set(LZ4_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/qnx-libs/lz4/lib)
+        set(LZ4 liblz4.a)
+        target_link_directories(${LIB_NAME} INTERFACE ${CMAKE_BINARY_DIR}/qnx-libs/lz4/build/cmake/)
+    else()
+        find_library(NAME liblz4.a)
+    endif()
+
 
     list(APPEND ${LIB_NAME}_COMPILE_DEFINITIONS WITH_LZ4=ON)
     list(APPEND ${LIB_NAME}_LINK_LIBRARIES ${LZ4})
@@ -54,7 +87,7 @@ if (WITH_EXAMPLE)
     set_target_properties(${EXAMPLE_NAME} PROPERTIES
             CXX_STANDARD 17
             CXX_STANDARD_REQUIRED ON
-            CXX_EXTENSIONS OFF)
+            CXX_EXTENSIONS ${CXX_EXTENSIONS_REQUIRED})
 
     target_link_libraries(${EXAMPLE_NAME} tarxx)
     target_compile_definitions(${EXAMPLE_NAME} PRIVATE ${${LIB_NAME}_COMPILE_DEFINITIONS})
