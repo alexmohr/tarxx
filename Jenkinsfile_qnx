@@ -1,0 +1,100 @@
+/**
+*
+* This executes a pipeline based on Pipeliner.
+* The pipeline can be found in the ntg-x-pipeliner-depot at
+* http://ntg-x.projects.luxoft.com/gitlab/ntg-x/ntg-x-pipeliner-depot.
+* For more information about Pipeliner and pipelines, refer to the documentation
+* in http://ntg-x.projects.luxoft.com/gitlab/ntg-x/pipeliner.
+*
+*/                              
+
+// This enables checkout for the component
+// This must be specified unless you want to run with default manifest file
+env.PIP_COMPONENT_DIR = "qnx-libs/tarxx"
+
+env.PIP_GENERATE_API_DOC = "false"
+env.PIP_RUN_COVERAGE_ANALYSIS = "false"
+env.PIP_BUILD_FOR_QNXVM = "true"
+
+// NOTE: Coverity would replace cppcheck report stage
+env.PIP_COVERITY = "true"
+env.PIP_COVERITY_ON_MERGE_REQUEST = "true"
+env.PIP_COVERITY_SRC_DIR = "qnx-services/trace-icc-service/src"
+env.PIP_COVERITY_BUILD_DIR = "build/${env.PIP_PRODUCT}/SA8295/aarch64le/qnx-tarxx/tarxx"
+env.PIP_COVERITY_COMPILER = "ntoaarch64-c++"
+env.PIP_COVERITY_COMPILER_TYPE = "gcc"
+env.PIP_COVERITY_SKIP_FILE = " \
+    --xml-option=skip_file:'./.*build.*/.*' \
+    --xml-option=skip_file:'./*.*test.*/.*' \
+    --xml-option=skip_file:'.*/qnx-ap/*' \
+    --xml-option=skip_file:'.*/qnx-apps/*' \
+    --xml-option=skip_file:'.*/qnx-build-script/*' \
+    --xml-option=skip_file:'.*/qnx-configs/*' \
+    --xml-option=skip_file:'.*/qnx-hypervisor_amss_includes/*' \
+    --xml-option=skip_file:'.*/qnx-hypervisor_amss_multimedia_common/*' \
+    --xml-option=skip_file:'.*/qnx-hypervisor_cust_platformlibs/*' \
+    --xml-option=skip_file:'.*/qnx-hypervisor_prebuilt/*' \
+    --xml-option=skip_file:'.*/qnx-hypervisor_target/*' \
+    --xml-option=skip_file:'.*/qnx-services/*
+    "
+
+env.PIP_COVERITY_CUSTOM_STREAMNAME_PREFIX = "qnx"
+env.PIP_COVERITY_STREAMNAME_MAIN="tarxx_master"
+env.PIP_COVERITY_ENABLE_QUALITY_GATE = "false"
+
+// Run unit tests in qemu
+env.PIP_TEST_OPTION="BUILD_TARXX_TESTS=on"
+env.PIP_UNIT_TEST = "true"
+env.PIP_UNIT_TEST_DIR = "build/${env.PIP_PRODUCT}/SA8195/x86_64/qnx-libs/tarxx/tests/unit-tests/"
+env.PIP_UNIT_TEST_BIN = "unit-tests"
+env.PIP_UNIT_TEST_SCP_FILES = "\
+    SA8195/qnx_ap/install/x86_64/usr \
+    sdp/target/qnx7/x86_64/usr/lib/libc++.so.1 \
+"
+
+// Run integration + component tests on QNX x86_64
+env.PIP_COMPONENT_TEST = "false"
+env.PIP_COMPONENT_TEST_BIN = "component-tests"
+env.PIP_COMPONENT_TEST_CMD = "./tests-qnx/run_tests.sh component"
+
+
+// Set Timeout to catch regressions in build/test time and to not block servers
+// env.PIP_TIMEOUT = 120
+// Timeout + 60 minutes because there are too few worker nodes atm and the
+// pipeline often starts after 45+ minutes
+env.PIP_TIMEOUT = 600
+
+// Associate component with owning team (e.g. used for dashboards)
+env.PIP_TEAMNAME = "Loggers"
+
+env.PIP_ARCHIVE="false"
+
+String disableQnxPipelineParam = "DISABLE_QNX_PIPELINE"
+
+if (env.gitlabMergeRequestDescription && env.gitlabMergeRequestDescription.contains(disableQnxPipelineParam)) {
+    println "QNX Pipeline is deactivated. Remove \"${disableQnxPipelineParam}\" from your merge request description to activate the QNX Pipeline"
+}
+else {
+
+    String target = ""
+    if (env.CHANGE_TARGET) {
+        target = CHANGE_TARGET
+    } else {
+        target = scm.branches[0].name
+    }
+
+    env.PIP_PRODUCT = "i2"
+    env.PIP_TARGETS = "sa8295"
+    env.PIP_MANIFEST_BRANCH="master"
+    if (target == "master_i3") {
+        env.PIP_PRODUCT = "i3"
+        env.PIP_MANIFEST_BRANCH="master_i3"
+        env.PIP_MANIFEST_FILE = "i3_pipeline.xml"
+    }
+    else if(target == "i2_SOP") {
+        env.PIP_MANIFEST_BRANCH="i2_SOP"
+    }
+
+    @Library('mbient-pipeliner-depot@release-latest') _
+    execQnxPipeline()
+}
